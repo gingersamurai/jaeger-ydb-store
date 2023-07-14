@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"github.com/hashicorp/go-hclog"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
@@ -20,6 +21,7 @@ type SpanWriter struct {
 	opts              SpanWriterOptions
 	pool              table.Client
 	logger            *zap.Logger
+	pluginLogger      hclog.Logger
 	spanBatch         *batch.Queue
 	indexer           *indexer.Indexer
 	nameCache         *lru.Cache
@@ -54,10 +56,15 @@ func NewSpanWriter(pool table.Client, metricsFactory metrics.Factory, logger *za
 		WriteTimeout: opts.WriteTimeout,
 		Batch:        batchOpts,
 	})
+	pluginLogger := hclog.New(&hclog.LoggerOptions{
+		Name:       "SpanWriter",
+		JSONFormat: true,
+	})
 	return &SpanWriter{
 		opts:              opts,
 		pool:              pool,
 		logger:            logger,
+		pluginLogger:      pluginLogger,
 		spanBatch:         bq,
 		indexer:           idx,
 		nameCache:         cache,
@@ -67,12 +74,16 @@ func NewSpanWriter(pool table.Client, metricsFactory metrics.Factory, logger *za
 
 // WriteSpan saves the span into YDB
 func (s *SpanWriter) WriteSpan(ctx context.Context, span *model.Span) error {
+	s.pluginLogger.Warn("started writing span")
+
 	if s.opts.MaxSpanAge != time.Duration(0) && time.Now().Sub(span.StartTime) > s.opts.MaxSpanAge {
 		s.invalidateMetrics.Inc(span.Process.ServiceName, span.OperationName)
+		s.pluginLogger.Warn("finished: span too old")
 		return nil
 	}
 	if span.StartTime.Unix() == 0 || span.StartTime.IsZero() {
 		s.invalidateMetrics.Inc(span.Process.ServiceName, span.OperationName)
+		s.pluginLogger.Warn("finished: span too old")
 		return nil
 	}
 	err := s.spanBatch.Add(span)
@@ -92,7 +103,13 @@ func (s *SpanWriter) WriteSpan(ctx context.Context, span *model.Span) error {
 	return s.saveServiceNameAndOperationName(span)
 }
 
+func (s *SpanWriter) monitor() {
+	s.pluginLogger.Warn("done")
+}
+
 func (s *SpanWriter) saveServiceNameAndOperationName(span *model.Span) error {
+	s.pluginLogger.Warn("go inside saveServiceNameAndOperationName")
+
 	ctx, cancel := context.WithTimeout(context.Background(), s.opts.WriteTimeout)
 	defer cancel()
 
@@ -109,6 +126,8 @@ func (s *SpanWriter) saveServiceNameAndOperationName(span *model.Span) error {
 		if err != nil {
 			return err
 		}
+		s.pluginLogger.Warn("done serviceName")
+		s.monitor()
 	}
 	if operationName == "" {
 		return nil
@@ -125,6 +144,8 @@ func (s *SpanWriter) saveServiceNameAndOperationName(span *model.Span) error {
 		if err != nil {
 			return err
 		}
+		s.pluginLogger.Warn("done serviceName-opeartionName-kind")
+		s.monitor()
 	}
 	return nil
 }

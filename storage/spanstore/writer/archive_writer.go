@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"github.com/hashicorp/go-hclog"
 	"time"
 
 	"github.com/jaegertracing/jaeger/model"
@@ -19,20 +20,25 @@ const (
 )
 
 type ArchiveSpanWriter struct {
-	metrics batchWriterMetrics
-	pool    table.Client
-	logger  *zap.Logger
-	opts    BatchWriterOptions
+	metrics      batchWriterMetrics
+	pool         table.Client
+	logger       *zap.Logger
+	pluginLogger hclog.Logger
+	opts         BatchWriterOptions
 }
 
 func NewArchiveWriter(pool table.Client, factory metrics.Factory, logger *zap.Logger, opts BatchWriterOptions) *ArchiveSpanWriter {
 	ns := factory.Namespace(metrics.NSOptions{Name: "archive"})
-
+	pluginLogger := hclog.New(&hclog.LoggerOptions{
+		Name:       "archive writer",
+		JSONFormat: true,
+	})
 	return &ArchiveSpanWriter{
-		pool:    pool,
-		logger:  logger,
-		opts:    opts,
-		metrics: newBatchWriterMetrics(ns),
+		pool:         pool,
+		logger:       logger,
+		pluginLogger: pluginLogger,
+		opts:         opts,
+		metrics:      newBatchWriterMetrics(ns),
 	}
 }
 
@@ -69,6 +75,7 @@ func (w *ArchiveSpanWriter) uploadRows(ctx context.Context, tableName string, ro
 	err := w.pool.Do(ctx, func(ctx context.Context, session table.Session) (err error) {
 		return session.BulkUpsert(ctx, tableName, data)
 	})
+	w.pluginLogger.Warn("written archive writer")
 	metrics.Emit(err, time.Since(ts), len(rows))
 	return err
 }

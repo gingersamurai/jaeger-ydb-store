@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"github.com/hashicorp/go-hclog"
 	"time"
 
 	"github.com/jaegertracing/jaeger/model"
@@ -20,18 +21,24 @@ const (
 )
 
 type BatchSpanWriter struct {
-	metrics batchWriterMetrics
-	pool    table.Client
-	logger  *zap.Logger
-	opts    BatchWriterOptions
+	metrics      batchWriterMetrics
+	pool         table.Client
+	logger       *zap.Logger
+	pluginLogger hclog.Logger
+	opts         BatchWriterOptions
 }
 
 func NewBatchWriter(pool table.Client, factory metrics.Factory, logger *zap.Logger, opts BatchWriterOptions) *BatchSpanWriter {
+	pluginLogger := hclog.New(&hclog.LoggerOptions{
+		Name:       "batch Writer",
+		JSONFormat: true,
+	})
 	return &BatchSpanWriter{
-		pool:    pool,
-		logger:  logger,
-		opts:    opts,
-		metrics: newBatchWriterMetrics(factory),
+		pool:         pool,
+		logger:       logger,
+		pluginLogger: pluginLogger,
+		opts:         opts,
+		metrics:      newBatchWriterMetrics(factory),
 	}
 }
 
@@ -73,6 +80,8 @@ func (w *BatchSpanWriter) uploadRows(ctx context.Context, tableName string, rows
 	err := w.pool.Do(ctx, func(ctx context.Context, session table.Session) (err error) {
 		return session.BulkUpsert(ctx, tableName, data)
 	})
+	w.pluginLogger.Warn("written batch")
+
 	metrics.Emit(err, time.Since(ts), len(rows))
 	return err
 }
