@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"github.com/ydb-platform/jaeger-ydb-store/internal/connection_monitor"
 	"io"
 	"net/http"
 	"net/http/pprof"
@@ -52,6 +54,13 @@ func main() {
 	defer func() {
 		_ = closer.Close()
 	}()
+
+	err = connection_monitor.GlobalConnectionMonitor.Init(context.Background(), viper.GetViper())
+	if err != nil {
+		logger.Error(err.Error())
+	}
+	go connection_monitor.GlobalConnectionMonitor.RunEndpoints()
+	go connection_monitor.GlobalConnectionMonitor.RunLatency()
 
 	logger.Warn("starting plugin")
 	jaegerGrpc.Serve(&shared.PluginServices{

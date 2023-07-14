@@ -3,6 +3,7 @@ package writer
 import (
 	"context"
 	"github.com/hashicorp/go-hclog"
+	"github.com/ydb-platform/jaeger-ydb-store/internal/connection_monitor"
 	"time"
 
 	"github.com/jaegertracing/jaeger/model"
@@ -70,6 +71,7 @@ func (w *BatchSpanWriter) writeItemsToPartition(part schema.PartitionKey, items 
 
 	if err = w.uploadRows(ctx, tableName(tblTraces), spanRecords, w.metrics.traces); err != nil {
 		w.logger.Error("insertSpan error", zap.Error(err))
+		w.pluginLogger.Error(err.Error())
 		return
 	}
 }
@@ -77,10 +79,12 @@ func (w *BatchSpanWriter) writeItemsToPartition(part schema.PartitionKey, items 
 func (w *BatchSpanWriter) uploadRows(ctx context.Context, tableName string, rows []types.Value, metrics *wmetrics.WriteMetrics) error {
 	ts := time.Now()
 	data := types.ListValue(rows...)
+
+	startTime := time.Now()
 	err := w.pool.Do(ctx, func(ctx context.Context, session table.Session) (err error) {
 		return session.BulkUpsert(ctx, tableName, data)
 	})
-	w.pluginLogger.Warn("written batch")
+	connection_monitor.GlobalConnectionMonitor.LatencyCollector <- time.Since(startTime)
 
 	metrics.Emit(err, time.Since(ts), len(rows))
 	return err

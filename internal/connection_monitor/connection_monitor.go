@@ -18,7 +18,7 @@ type ConnectionMonitor struct {
 	LatencyCollector chan time.Duration
 }
 
-var GlobalConnectionMonitor *ConnectionMonitor
+var GlobalConnectionMonitor = &ConnectionMonitor{}
 
 func (cm *ConnectionMonitor) Init(ctx context.Context, v *viper.Viper) error {
 	conn, err := db.DialFromViper(
@@ -33,14 +33,12 @@ func (cm *ConnectionMonitor) Init(ctx context.Context, v *viper.Viper) error {
 
 	discoveryClient := conn.Discovery()
 	pluginLogger := hclog.New(&hclog.LoggerOptions{
-		Name:        "connection monitor",
-		DisableTime: true,
-		JSONFormat:  true,
+		Name:       "ydb-store-plugin",
+		JSONFormat: true,
 	})
-	cm = &ConnectionMonitor{
-		discoveryClient: discoveryClient,
-		pluginLogger:    pluginLogger,
-	}
+	cm.discoveryClient = discoveryClient
+	cm.pluginLogger = pluginLogger
+	cm.LatencyCollector = make(chan time.Duration, 100)
 	return nil
 }
 
@@ -75,8 +73,8 @@ func (cm *ConnectionMonitor) RunLatency() {
 			maxLatency = latency
 		}
 		cm.pluginLogger.Warn("LATENCY MONITOR:",
-			"latency", latency,
-			"maxLatency", maxLatency,
+			"latency", latency.String(),
+			"maxLatency", maxLatency.String(),
 		)
 	}
 }

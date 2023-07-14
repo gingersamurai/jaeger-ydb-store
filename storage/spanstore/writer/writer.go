@@ -3,6 +3,7 @@ package writer
 import (
 	"context"
 	"github.com/hashicorp/go-hclog"
+	"github.com/ydb-platform/jaeger-ydb-store/internal/connection_monitor"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
@@ -74,16 +75,13 @@ func NewSpanWriter(pool table.Client, metricsFactory metrics.Factory, logger *za
 
 // WriteSpan saves the span into YDB
 func (s *SpanWriter) WriteSpan(ctx context.Context, span *model.Span) error {
-	s.pluginLogger.Warn("started writing span")
 
 	if s.opts.MaxSpanAge != time.Duration(0) && time.Now().Sub(span.StartTime) > s.opts.MaxSpanAge {
 		s.invalidateMetrics.Inc(span.Process.ServiceName, span.OperationName)
-		s.pluginLogger.Warn("finished: span too old")
 		return nil
 	}
 	if span.StartTime.Unix() == 0 || span.StartTime.IsZero() {
 		s.invalidateMetrics.Inc(span.Process.ServiceName, span.OperationName)
-		s.pluginLogger.Warn("finished: span too old")
 		return nil
 	}
 	err := s.spanBatch.Add(span)
@@ -103,12 +101,7 @@ func (s *SpanWriter) WriteSpan(ctx context.Context, span *model.Span) error {
 	return s.saveServiceNameAndOperationName(span)
 }
 
-func (s *SpanWriter) monitor() {
-	s.pluginLogger.Warn("done")
-}
-
 func (s *SpanWriter) saveServiceNameAndOperationName(span *model.Span) error {
-	s.pluginLogger.Warn("go inside saveServiceNameAndOperationName")
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.opts.WriteTimeout)
 	defer cancel()
@@ -120,14 +113,15 @@ func (s *SpanWriter) saveServiceNameAndOperationName(span *model.Span) error {
 		data := types.ListValue(types.StructValue(
 			types.StructFieldValue("service_name", types.UTF8Value(serviceName)),
 		))
+
+		startTime := time.Now()
 		err := s.pool.Do(ctx, func(ctx context.Context, session table.Session) (err error) {
 			return session.BulkUpsert(ctx, s.opts.DbPath.FullTable("service_names"), data)
 		})
 		if err != nil {
 			return err
 		}
-		s.pluginLogger.Warn("done serviceName")
-		s.monitor()
+		connection_monitor.GlobalConnectionMonitor.LatencyCollector <- time.Since(startTime)
 	}
 	if operationName == "" {
 		return nil
@@ -138,14 +132,15 @@ func (s *SpanWriter) saveServiceNameAndOperationName(span *model.Span) error {
 			types.StructFieldValue("operation_name", types.UTF8Value(operationName)),
 			types.StructFieldValue("span_kind", types.UTF8Value(kind)),
 		))
+
+		startTime := time.Now()
 		err := s.pool.Do(ctx, func(ctx context.Context, session table.Session) error {
 			return session.BulkUpsert(ctx, s.opts.DbPath.FullTable("operation_names_v2"), data)
 		})
 		if err != nil {
 			return err
 		}
-		s.pluginLogger.Warn("done serviceName-opeartionName-kind")
-		s.monitor()
+		connection_monitor.GlobalConnectionMonitor.LatencyCollector <- time.Since(startTime)
 	}
 	return nil
 }
