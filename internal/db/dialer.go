@@ -80,20 +80,18 @@ func readPrivateKeyFromFile(path string, fr FileReader) (*rsa.PrivateKey, error)
 func getCredentialsAndOpts(eg EnvGetter, fr FileReader) (creds credentials.Credentials, opts []ydb.Option, err error) {
 	if caFile := eg.GetString(KeyYdbCAFile); caFile != "" {
 		opts = append(opts, ydb.WithCertificatesFromFile(caFile))
+		opts = append(opts, ydb.WithSecure(true))
 	}
 
 	switch {
 	case eg.GetBool(keyYdbAnonymous) == true:
 		creds = credentials.NewAnonymousCredentials()
-		opts = append(opts, ydb.WithInsecure())
 
 	case eg.GetString(KeyYdbToken) != "":
 		creds = credentials.NewAccessTokenCredentials(eg.GetString(KeyYdbToken))
-		opts = append(opts, ydb.WithInsecure())
 
 	case eg.GetBool(KeyYdbSaMetaAuth) == true:
 		creds = yc.NewInstanceServiceAccount()
-		opts = append(opts, ydb.WithSecure(true))
 
 	case eg.GetString(keyYdbSaKeyJson) != "":
 
@@ -113,7 +111,6 @@ func getCredentialsAndOpts(eg EnvGetter, fr FileReader) (creds credentials.Crede
 		if err != nil {
 			return nil, nil, fmt.Errorf("getCredentialsAndOpts: %w", err)
 		}
-		opts = append(opts, ydb.WithSecure(true))
 
 	case eg.GetString(KeyYdbSaKeyID) != "" ||
 		eg.GetString(KeyYdbSaId) != "" ||
@@ -134,7 +131,6 @@ func getCredentialsAndOpts(eg EnvGetter, fr FileReader) (creds credentials.Crede
 		if err != nil {
 			return nil, nil, fmt.Errorf("getCredentialsAndOpts: %w", err)
 		}
-		opts = append(opts, ydb.WithSecure(true))
 
 	default:
 		return nil, nil, fmt.Errorf("getCredentialsAndOpts: %w", errNoCredentialsAreSpecified)
